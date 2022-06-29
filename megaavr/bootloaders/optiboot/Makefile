@@ -18,14 +18,28 @@ MF:= $(MAKEFILE_LIST)
 # export symbols to recursive makes (for ISP)
 export
 
-LDSECTIONS  = -Wl,-section-start=.text=0 \
-	      -Wl,--section-start=.application=0x200 \
-	      -Wl,--section-start=.version=0x1fe
+
+
+# Memory configuration
+# BOOTEND_FUSE * 256 must be above Bootloader Program Memory Usage,
+# this is 194 bytes at optimization level -O3, so BOOTEND_FUSE = 0x01
+
+BOOTEND_FUSE = 0x02
+BOOT_SIZE    = $(BOOTEND_FUSE)00
+
+LDSECTIONS  = -Wl,-section-start=.text=0x00 \
+	      -Wl,--section-start=.application=$(BOOT_SIZE) \
+	      -Wl,--section-start=.version=0x$(shell echo $$(( $(BOOTEND_FUSE) - 1 )))FE
+
+BOOTFLAGS = -DBOOTEND_FUSE=$(BOOTEND_FUSE) -DBOOT_SIZE=$(BOOT_SIZE)
 
 BAUD_RATE=115200
 
 # Place your avr-gcc tool root here
-GCCROOT =/Applications/Arduino.app/Contents/Java/hardware/tools/avr/bin/
+GCCROOT = "/home/kjb/Public Workspace/arduino-1.8.19/hardware/tools/avr/bin/"#/opt/microchip/xc8/v2.32/avr/bin/
+INCLUDE = /opt/microchip/xc8/v2.32/avr/avr/include/
+DFP_PATH = /opt/microchip/mplabx/v5.50/packs/Microchip/ATmega_DFP/2.3.126
+
 
 #
 # End of build environment code.
@@ -48,13 +62,30 @@ OPTIMIZE = -Os -fno-split-wide-types -mrelax
 override CFLAGS  = -g -Wall $(OPTIMIZE)
 override LDFLAGS = $(LDSECTIONS) -Wl,--relax -nostartfiles -nostdlib
 
+
+
+#AVRDUDE_PATH   = "/home/kjb/Public Workspace/arduino-1.8.19/hardware/tools/avr/"
+
 OBJCOPY        = $(GCCROOT)avr-objcopy
 OBJDUMP        = $(GCCROOT)avr-objdump
 SIZE           = $(GCCROOT)avr-size
+AVRDUDE		   = $(AVRDUDE_PATH)avrdude
+
+AVRDUDE_PROGRAMMER = atmelice_updi
+AVRDUDE_PORT = /dev/ttyUSB0
+AVRDUDE_BAUD = $(BAUD_RATE)
+AVRDUDE_MCU	 = m3208
+AVRDUDE_CONF = "/home/kjb/Public Workspace/MegaCoreX/megaavr/avrdude.conf"
+
+#AVRDUDE_NO_VERIFY = -V
+
+AVRDUDE_FLAGS = -C $(AVRDUDE_CONF) -p $(AVRDUDE_MCU) -P $(AVRDUDE_PORT) -b $(AVRDUDE_BAUD) $(AVRDUDE_NO_VERIFY)
 
 include parse_options.mk
 
-.PRECIOUS: optiboot_%.elf
+.PRECIOUS: %.elf
+.PRECIOUS: %.lst
+.PRECIOUS: %.map
 
 ifndef PRODUCTION
 LISTING= $(OBJDUMP) -S 
@@ -125,11 +156,21 @@ optiboot_%.hex: optiboot_%.elf
 	$(OBJCOPY) -j .text -j .data -j .version --set-section-flags .version=alloc,load -O ihex $< $@
 
 %.hex: %.elf
-	$(OBJCOPY) -j .text -j .data -j .version --set-section-flags .version=alloc,load -O ihex $< $@
-
-%.elf:	optiboot_x.c FORCE
-	$(CC) $(CFLAGS) $(CPU_OPTIONS) $(LED_OPTIONS) $(UART_OPTIONS) $(COMMON_OPTIONS) $(POR) $(LDFLAGS) $(PACK_OPT) -mmcu=$(TARGET) -o $@ $<
+	$(OBJCOPY) -j .text -j .data -j .version --set-section-flags .version=alloc,load -O ihex $< $@	
 	$(SIZE) $@
+
+%_fuses.hex: %.elf
+	$(OBJCOPY) -j --section=.fuse -O ihex $< $@
+
+%.elf:	optiboot_x_mod.c FORCE
+	@echo "Compile elf"
+	$(CC) $(CFLAGS) $(CPU_OPTIONS) $(LED_OPTIONS) $(UART_OPTIONS) $(COMMON_OPTIONS) $(POR) $(BOOTFLAGS) $(LDFLAGS) $(PACK_OPT) -Wl,-Map="optiboot_x.map" -mmcu=$(MCU) -o $@ $<
+
+flash: %.hex
+	$(AVRDUDE) $(AVRDUDE_FLAGS) -U flash:w:$<.hex:i
+	
+writebootend: 
+	$(AVRDUDE) $(AVRDUDE_FLAGS) -U fuses:w:$(BOOTEND_FUSE):m
 
 
 #---------------------------------------------------------------------------
@@ -141,9 +182,16 @@ optiboot_%.hex: optiboot_%.elf
 #  appropriate specific options
 #---------------------------------------------------------------------------
 
+.PHONY: mega0 install
 
-mega0: TARGET=atmega4809
-mega0: bootloaders/mega0/$(BAUD_RATE)/Optiboot_mega0_UART$(UART)_$(UARTMUX)_$(BAUD_RATE)_$(LED).hex
+mega0: MCU=atmega4809
+mega0: bootloaders/mega0/$(BAUD_RATE)/Optiboot_mega0_UART$(UART)_$(UARTMUX)_$(BAUD_RATE)_$(LED).hex 
+mega0: bootloaders/mega0/$(BAUD_RATE)/Optiboot_mega0_UART$(UART)_$(UARTMUX)_$(BAUD_RATE)_$(LED)_fuses.hex 
+mega0: bootloaders/mega0/$(BAUD_RATE)/Optiboot_mega0_UART$(UART)_$(UARTMUX)_$(BAUD_RATE)_$(LED).lst 
+#$(TARGET).lst
+
+install: mega0
+	avrdude -p m3208 -c atmelice_updi -U flash:w:bootloaders/mega0/$(BAUD_RATE)/Optiboot_mega0_UART$(UART)_$(UARTMUX)_$(BAUD_RATE)_$(LED).hex:i
 
 
 #---------------------------------------------------------------------------

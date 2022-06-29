@@ -1,5 +1,3 @@
-
-
 /************************************************************/
 /* Optiboot bootloader for Mega0, Tiny0, Tiny1              */
 /*                                                          */
@@ -120,6 +118,10 @@ optiboot_version = 256*(OPTIBOOT_MAJVER + OPTIBOOT_CUSTOMVER) + OPTIBOOT_MINVER;
 #include <unsupported>  // include a non-existent file to stop compilation
 #endif
 
+
+#define MAPPED_APPLICATION_START   (MAPPED_PROGMEM_START + BOOT_SIZE)
+#define MAPPED_APPLICATION_SIZE    (MAPPED_PROGMEM_SIZE - BOOT_SIZE)
+
 /*
  * Fuses.
  * This is an example of what they'd be like, but some should not
@@ -154,7 +156,7 @@ FUSES = {
 #endif
     .SYSCFG1 = 0x06,  /* startup 32ms */
     .APPEND = 0,  /* Application Code Section End */
-    .BOOTEND = 2 /* Boot Section End */
+    .BOOTEND = BOOTEND_FUSE /* Boot Section End */
 };
 
 
@@ -302,9 +304,14 @@ void pre_main (void) {
 	);
 }
 
+#define FANCY_RESET_LOGIC
+
 /* main program starts here */
 int main (void) {
     uint8_t ch;
+    volatile uint16_t temp;
+    uint8_t desttype;
+    unsigned char which;
 
     /*
      * Making these local and in registers prevents the need for initializing
@@ -322,10 +329,10 @@ int main (void) {
     //  SP points to RAMEND
 
     __asm__ __volatile__ ("clr __zero_reg__"); // known-zero required by avr-libc
-#define RESET_EXTERNAL (RSTCTRL_EXTRF_bm|RSTCTRL_UPDIRF_bm|RSTCTRL_SWRF_bm)
+#define RESET_EXTERNAL (/*RSTCTRL_EXTRF_bm|*/RSTCTRL_UPDIRF_bm|RSTCTRL_SWRF_bm)
 #ifndef FANCY_RESET_LOGIC
   ch = RSTCTRL.RSTFR;   // get reset cause
-#ifdef START_APP_ON_POR
+# ifdef START_APP_ON_POR
   /*
    * If WDRF is set OR nothing except BORF and PORF are set, that's
    * not bootloader entry condition so jump to app - this is for when
@@ -337,14 +344,14 @@ int main (void) {
 
   if (ch && (ch & RSTCTRL_WDRF_bm ||
              (!(ch & (~(RSTCTRL_BORF_bm | RSTCTRL_PORF_bm)))))) {
-#else
+# else
   /*
    * If WDRF is set OR nothing except BORF is set, that's not
    * bootloader entry condition so jump to app - let's see if this
    * works okay or not...
    */
   if (ch && (ch & RSTCTRL_WDRF_bm || (!(ch & (~RSTCTRL_BORF_bm))))) {
-#endif
+# endif
     /* Start the app.
      * Dont bother trying to stuff it in r2, which requires heroic
      * effort to fish out we'll put it in GPIOR0 where it won't get
@@ -353,7 +360,7 @@ int main (void) {
     // __asm__ __volatile__ ("  mov r2, %0\n" :: "r" (ch));
     RSTCTRL.RSTFR = ch; //clear the reset causes before jumping to app...
     GPIOR0 = ch; // but, stash the reset cause in GPIOR0 for use by app...
-    watchdogConfig(WDT_PERIOD_OFF_gc);
+    watchdogConfig(WDT_PERIOD_OFF_gc);    // Try jumping to the app
     __asm__ __volatile__(
       "  jmp app\n"
       );
@@ -404,7 +411,7 @@ int main (void) {
 #endif // Fancy reset cause stuff
 
     watchdogReset();
-//    _PROTECTED_WRITE(CLKCTRL.MCLKCTRLB, 0);  // full speed clock
+    //_PROTECTED_WRITE(CLKCTRL.MCLKCTRLB, CLKCTRL_PDIV_6X_gc);  // full speed clock
 
     MYUART_TXPORT.DIR |= MYUART_TXPIN; // set TX pin to output
     MYUART_TXPORT.OUT |= MYUART_TXPIN;  // and "1" as per datasheet
@@ -412,9 +419,9 @@ int main (void) {
     MYPMUX_REG = MYUART_PMUX_VAL;  // alternate pinout to use
 #endif
     if ((FUSE_OSCCFG & FUSE_FREQSEL_gm) == FREQSEL_16MHZ_gc) {
-	MYUART.BAUD = BAUD_SETTING_16;
+	    MYUART.BAUD = BAUD_SETTING_16;
     } else {
-	MYUART.BAUD = BAUD_SETTING_20;
+	    MYUART.BAUD = BAUD_SETTING_20;//694;
     }
     MYUART.DBGCTRL = 1;  // run during debug
     MYUART.CTRLC = (USART_CHSIZE_gm & USART_CHSIZE_8BIT_gc);  // Async, Parity Disabled, 1 StopBit
@@ -438,130 +445,137 @@ int main (void) {
     flash_led(LED_START_FLASHES * 2);
 # endif
 #else
-#if defined(LED_START_ON)
-# ifndef LED_INVERT
+# if defined(LED_START_ON)
+#  ifndef LED_INVERT
     /* Turn on LED to indicate starting bootloader (less code!) */
     LED_PORT.OUT |= LED;
+#  endif
 # endif
-#endif
 #endif
 
     /* Forever loop: exits by causing WDT reset */
     for (;;) {
-	/* get character from UART */
-	ch = getch();
+        /* get character from UART */
+        ch = getch();
 
-	if(ch == STK_GET_PARAMETER) {
-	    unsigned char which = getch();
-	    verifySpace();
-	    /*
-	     * Send optiboot version as "SW version"
-	     * Note that the references to memory are optimized away.
-	     */
-	    if (which == STK_SW_MINOR) {
-		putch(optiboot_version & 0xFF);
-	    } else if (which == STK_SW_MAJOR) {
-		putch(optiboot_version >> 8);
-	    } else {
-		/*
-		 * GET PARAMETER returns a generic 0x03 reply for
-		 * other parameters - enough to keep Avrdude happy
-		 */
-		putch(0x03);
-	    }
-	}
-	else if(ch == STK_SET_DEVICE) {
-	    // SET DEVICE is ignored
-	    getNch(20);
-	}
-	else if(ch == STK_SET_DEVICE_EXT) {
-	    // SET DEVICE EXT is ignored
-	    getNch(5);
-	}
-	else if(ch == STK_LOAD_ADDRESS) {
-	    // LOAD ADDRESS
-	    address.bytes[0] = getch();
-	    address.bytes[1] = getch();
-	    // ToDo: will there be mega-0 chips with >128k of RAM?
-/*          UPDI chips apparently have byte-addressable FLASH ?
-	    address.word *= 2; // Convert from word address to byte address
-*/
-	    verifySpace();
-	}
-	else if(ch == STK_UNIVERSAL) {
+        if(ch == STK_GET_PARAMETER) {
+            which = getch();
+            verifySpace();
+            /*
+            * Send optiboot version as "SW version"
+            * Note that the references to memory are optimized away.
+            */
+            if (which == STK_SW_MINOR) {
+                putch(optiboot_version & 0xFF);
+            } else if (which == STK_SW_MAJOR) {
+                putch(optiboot_version >> 8);
+            } else {
+            /*
+            * GET PARAMETER returns a generic 0x03 reply for
+            * other parameters - enough to keep Avrdude happy
+            */
+                putch(0x03);
+            }
+        }
+        else if(ch == STK_SET_DEVICE) {
+            // SET DEVICE is ignored
+            getNch(20);
+        }
+        else if(ch == STK_SET_DEVICE_EXT) {
+            // SET DEVICE EXT is ignored
+            getNch(5);
+        }
+        else if(ch == STK_LOAD_ADDRESS) {
+            // LOAD ADDRESS
+            address.bytes[0] = getch();
+            address.bytes[1] = getch();
+            // ToDo: will there be mega-0 chips with >128k of RAM?
+    /*          UPDI chips apparently have byte-addressable FLASH ?
+            address.word *= 2; // Convert from word address to byte address
+    */
+            verifySpace();
+        }
+        else if(ch == STK_UNIVERSAL) {
 #ifndef RAMPZ
-	    // UNIVERSAL command is ignored
-	    getNch(4);
-	    putch(0x00);
+            // UNIVERSAL command is ignored
+            getNch(4);
+            putch(0x00);
 #endif
-	}
-	/* Write memory, length is big endian and is in bytes */
-	else if(ch == STK_PROG_PAGE) {
-	    // PROGRAM PAGE - any kind of page!
-	    uint8_t desttype;
+        }
+        /* Write memory, length is big endian and is in bytes */
+        else if(ch == STK_PROG_PAGE) {
+            // PROGRAM PAGE - any kind of page!
 
-	    GETLENGTH(length);
-	    desttype = getch();
+            GETLENGTH(length);
+            desttype = getch();
 
-	    if (desttype == 'F') {
-		address.word += MAPPED_PROGMEM_START;
-	    } else {
-		address.word += MAPPED_EEPROM_START;
-	    }
-	    // TODO: user row?
+            if (desttype == 'F') {
+                address.word += MAPPED_PROGMEM_START;
+            } else {
+                address.word += MAPPED_EEPROM_START;
+            }
+            // TODO: user row?
 
-	    do {
-		*(address.bptr++) = getch();
-	    } while (--length);
+            do {
+                *(address.bptr++) = getch();
+            } while (--length);
 
-	    // Read command terminator, start reply
-	    verifySpace();
-	    /*
-	     * Actually Write the buffer to flash (and wait for it to finish.)
-	     */
-	    _PROTECTED_WRITE_SPM(NVMCTRL.CTRLA, NVMCTRL_CMD_PAGEERASEWRITE_gc);
-	    while (NVMCTRL.STATUS & (NVMCTRL_FBUSY_bm|NVMCTRL_EEBUSY_bm))
-		; // wait for flash and EEPROM not busy, just in case.
-	}
-	/* Read memory block mode, length is big endian.  */
-	else if(ch == STK_READ_PAGE) {
-	    uint8_t desttype;
-	    GETLENGTH(length);
+            // Read command terminator, start reply
+            verifySpace();
 
-	    desttype = getch();
+            /*
+            * Actually Write the buffer to flash (and wait for it to finish.) */
+            
+            _PROTECTED_WRITE_SPM(NVMCTRL.CTRLA, NVMCTRL_CMD_PAGEERASEWRITE_gc);
+            while (NVMCTRL.STATUS & (NVMCTRL_FBUSY_bm|NVMCTRL_EEBUSY_bm))
+            ; // wait for flash and EEPROM not busy, just in case.            
+        }
+        /* Read memory block mode, length is big endian. */ 
+        else if(ch == STK_READ_PAGE) {
+            GETLENGTH(length);
 
-	    verifySpace();
-	    if (desttype == 'F') {
-		address.word += MAPPED_PROGMEM_START;
-	    } else {
-		address.word += MAPPED_EEPROM_START;
-	    }
-	    // TODO: user row?
+            desttype = getch();
 
-	    do {
-		putch(*(address.bptr++));
-	    } while (--length);
-	}
+            verifySpace();
+            if (desttype == 'F') {
+                address.word += MAPPED_PROGMEM_START;
+            } else {
+                address.word += MAPPED_EEPROM_START;
+            }
+            // TODO: user row?
 
-	/* Get device signature bytes  */
-	else if(ch == STK_READ_SIGN) {
-	    // READ SIGN - return actual device signature from SIGROW
- 	    // This enables the same binary to be ued on multiple chips.
-	    verifySpace();
-	    putch(SIGROW_DEVICEID0);
-	    putch(SIGROW_DEVICEID1);
-	    putch(SIGROW_DEVICEID2);
-	}
-	else if (ch == STK_LEAVE_PROGMODE) { /* 'Q' */
-	    // Adaboot no-wait mod
-	    watchdogConfig(WDT_PERIOD_8CLK_gc);
-	    verifySpace();
-	}
-	else {
-	    // This covers the response to commands like STK_ENTER_PROGMODE
-	    verifySpace();
-	}
-	putch(STK_OK);
+            do {
+                putch(*(address.bptr++));
+            } while (--length);
+        }
+
+        /* Get device signature bytes */
+        else if(ch == STK_READ_SIGN) {
+            // READ SIGN - return actual device signature from SIGROW
+            // This enables the same binary to be ued on multiple chips.
+            verifySpace();
+            putch(SIGROW_DEVICEID0);
+            putch(SIGROW_DEVICEID1);
+            putch(SIGROW_DEVICEID2);
+        }
+        else if (ch == STK_LEAVE_PROGMODE) { /* 'Q' */
+            // Adaboot no-wait mod
+            verifySpace();
+#ifndef FANCY_RESET_LOGIC
+            watchdogConfig(WDT_PERIOD_8CLK_gc);
+#else
+            putch(STK_OK);
+            RSTCTRL.RSTFR = 0xff;
+            while (0 == (MYUART.STATUS & USART_TXCIF_bm))
+            ;
+            __asm__ __volatile__ ("jmp 0");    // Restart bootloader program without triggering resets
+#endif
+        }
+        else {
+            // This covers the response to commands like STK_ENTER_PROGMODE
+            verifySpace();
+        }
+        putch(STK_OK);
     }
 }
 
@@ -571,14 +585,19 @@ void putch (char ch) {
     MYUART.TXDATAL = ch;
 }
 
+//#define ECHO
+
 uint8_t getch (void) {
     uint8_t ch, flags;
     while (!(MYUART.STATUS & USART_RXCIF_bm))
 	;
     flags = MYUART.RXDATAH;
     ch = MYUART.RXDATAL;
+#ifdef ECHO
+    putch(ch);
+#endif
     if ((flags & USART_FERR_bm) == 0)
-	watchdogReset();
+	    watchdogReset();
 #ifdef LED_DATA_FLASH
     LED_PORT.IN |= LED;
 #endif
@@ -593,9 +612,9 @@ void getNch (uint8_t count) {
 
 void verifySpace () {
     if (getch() != CRC_EOP) {
-	watchdogConfig(WDT_PERIOD_8CLK_gc);    // shorten WD timeout
-	while (1)			      // and busy-loop so that WD causes
-	    ;				      //  a reset and app start.
+        watchdogConfig(WDT_PERIOD_8CLK_gc);    // shorten WD timeout
+        while (1)			      // and busy-loop so that WD causes
+            ;				      //  a reset and app start.
     }
     putch(STK_INSYNC);
 }
@@ -604,13 +623,13 @@ void verifySpace () {
 void flash_led (uint8_t count) {
     uint16_t delay;  // at 20MHz/6, a 16bit delay counter is enough
     while (count--) {
-	LED_PORT.IN |= LED;
-	// delay assuming 20Mhz OSC.  It's only to "look about right", anyway.
-	for (delay = ((20E6/6)/150); delay; delay--) {
-	    watchdogReset();
-	    if (MYUART.STATUS & USART_RXCIF_bm)
-		return;
-	}
+        LED_PORT.IN |= LED;
+        // delay assuming 20Mhz OSC.  It's only to "look about right", anyway.
+        for (delay = ((20E6/6)/150); delay; delay--) {
+            watchdogReset();
+            if (MYUART.STATUS & USART_RXCIF_bm)
+            return;
+        }
     }
     watchdogReset(); // for breakpointing
 }
@@ -648,12 +667,12 @@ void watchdogConfig (uint8_t x) {
 static void do_nvmctrl(uint16_t address, uint8_t command, uint8_t data)  __attribute__ ((used));
 static void do_nvmctrl (uint16_t address, uint8_t command, uint8_t data) {
      if (command <= NVMCTRL_CMD_gm) {
- 	_PROTECTED_WRITE_SPM(NVMCTRL.CTRLA, command);
- 	while (NVMCTRL.STATUS & (NVMCTRL_FBUSY_bm|NVMCTRL_EEBUSY_bm))
- 	    ; // wait for flash and EEPROM not busy, just in case.
-     } else {
- 	*(uint8_t *)address = data;
-     }
+        _PROTECTED_WRITE_SPM(NVMCTRL.CTRLA, command);
+        while (NVMCTRL.STATUS & (NVMCTRL_FBUSY_bm|NVMCTRL_EEBUSY_bm))
+            ; // wait for flash and EEPROM not busy, just in case.
+    } else {
+        *(uint8_t *)address = data;
+    }
 }
 #endif
 
@@ -731,6 +750,9 @@ void app()
     RSTCTRL.RSTFR = ch; // reset causes
     *(volatile uint16_t *)(&optiboot_version);   // reference the version
     do_nvmctrl(0, NVMCTRL_CMD_PAGEBUFCLR_gc, 0); // reference this function!
+#ifndef FANCY_RESET_LOGIC   
     __asm__ __volatile__ ("jmp 0");    // similar to running off end of memory
-//    _PROTECTED_WRITE(RSTCTRL.SWRR, 1); // cause new reset
+#else
+    _PROTECTED_WRITE(RSTCTRL.SWRR, 1); // cause new reset
+#endif
 }

@@ -1,0 +1,24 @@
+{
+    "folders": [
+        {
+            "path": ".."
+        },
+        {
+            "path": "../../../../../../Workspace/Emdedded/Atmel Windows/JigDTMF/JigDTMF"
+        }
+    ],
+    "settings": {
+        "files.associations": {
+            "inttypes.h": "c",
+            "stk500.h": "c",
+            "pin_defs_x.h": "c"
+        },
+        "makefile.launchConfigurations": [
+            {
+                "cwd": "/home/kjb/Public Workspace/MegaCoreX/megaavr/bootloaders/optiboot",
+                "binaryPath": "/home/kjb/Public Workspace/MegaCoreX/megaavr/bootloaders/optiboot/%.elf",
+                "binaryArgs": []
+            }
+        ]
+    }
+}

@@ -1,0 +1,755 @@
+
+bootloaders/mega0/115200/Optiboot_mega0_UART2_DEF_115200_A1.elf:     file format elf32-avr
+
+Sections:
+Idx Name          Size      VMA       LMA       File off  Algn
+  0 .data         00000000  00802800  00000344  000003f8  2**0
+                  CONTENTS, ALLOC, LOAD, DATA
+  1 .text         00000344  00000000  00000000  000000b4  2**1
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  2 .application  0000002a  00000400  00000400  000003fa  2**0
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  3 .version      00000002  000003fe  000003fe  000003f8  2**0
+                  CONTENTS, ALLOC, LOAD, READONLY, DATA
+  4 .fuse         00000009  00820000  00820000  00000424  2**0
+                  CONTENTS, ALLOC, LOAD, DATA
+  5 .comment      00000011  00000000  00000000  0000042d  2**0
+                  CONTENTS, READONLY
+  6 .debug_aranges 00000038  00000000  00000000  0000043e  2**0
+                  CONTENTS, READONLY, DEBUGGING
+  7 .debug_info   000008fe  00000000  00000000  00000476  2**0
+                  CONTENTS, READONLY, DEBUGGING
+  8 .debug_abbrev 0000021e  00000000  00000000  00000d74  2**0
+                  CONTENTS, READONLY, DEBUGGING
+  9 .debug_line   000003e4  00000000  00000000  00000f92  2**0
+                  CONTENTS, READONLY, DEBUGGING
+ 10 .debug_frame  0000010c  00000000  00000000  00001378  2**2
+                  CONTENTS, READONLY, DEBUGGING
+ 11 .debug_str    000006ff  00000000  00000000  00001484  2**0
+                  CONTENTS, READONLY, DEBUGGING
+ 12 .debug_loc    000001d0  00000000  00000000  00001b83  2**0
+                  CONTENTS, READONLY, DEBUGGING
+ 13 .debug_ranges 00000028  00000000  00000000  00001d53  2**0
+                  CONTENTS, READONLY, DEBUGGING
+
+Disassembly of section .text:
+
+00000000 <pre_main>:
+/* everything that needs to run VERY early */
+void pre_main (void) {
+    // Allow convenient way of calling do_spm function - jump table,
+    //   so entry to this function will always be here, indepedent
+    //    of compilation, features, etc
+    __asm__ __volatile__ (
+   0:	01 c0       	rjmp	.+2      	; 0x4 <__zero_reg__+0x3>
+   2:	76 c1       	rjmp	.+748    	; 0x2f0 <do_nvmctrl>
+	...
+
+00000006 <main>:
+	"1:\n"
+	);
+}
+
+/* main program starts here */
+int main (void) {
+   6:	cd b7       	in	r28, 0x3d	; 61
+   8:	de b7       	in	r29, 0x3e	; 62
+   a:	25 97       	sbiw	r28, 0x05	; 5
+   c:	cd bf       	out	0x3d, r28	; 61
+   e:	de bf       	out	0x3e, r29	; 62
+    //
+    // Optiboot C code makes the following assumptions:
+    //  No interrupts will execute
+    //  SP points to RAMEND
+
+    __asm__ __volatile__ ("clr __zero_reg__"); // known-zero required by avr-libc
+  10:	11 24       	eor	r1, r1
+#define RESET_EXTERNAL (RSTCTRL_EXTRF_bm|RSTCTRL_UPDIRF_bm|RSTCTRL_SWRF_bm)
+#ifndef FANCY_RESET_LOGIC
+  ch = RSTCTRL.RSTFR;   // get reset cause
+  12:	80 e4       	ldi	r24, 0x40	; 64
+  14:	90 e0       	ldi	r25, 0x00	; 0
+  16:	fc 01       	movw	r30, r24
+  18:	80 81       	ld	r24, Z
+  1a:	89 83       	std	Y+1, r24	; 0x01
+   * 11/14: NASTY bug - we also need to check for no reset flags being
+   * set (ie, direct entry) and run bootloader in that case, otherwise
+   * bootloader won't run, among other things, after fresh bootloading!
+   */
+
+  if (ch && (ch & RSTCTRL_WDRF_bm ||
+  1c:	89 81       	ldd	r24, Y+1	; 0x01
+  1e:	88 23       	and	r24, r24
+  20:	d1 f0       	breq	.+52     	; 0x56 <__SREG__+0x17>
+  22:	89 81       	ldd	r24, Y+1	; 0x01
+  24:	88 2f       	mov	r24, r24
+  26:	90 e0       	ldi	r25, 0x00	; 0
+  28:	88 70       	andi	r24, 0x08	; 8
+  2a:	99 27       	eor	r25, r25
+  2c:	89 2b       	or	r24, r25
+  2e:	31 f4       	brne	.+12     	; 0x3c <__CCP__+0x8>
+             (!(ch & (~(RSTCTRL_BORF_bm | RSTCTRL_PORF_bm)))))) {
+  30:	89 81       	ldd	r24, Y+1	; 0x01
+  32:	88 2f       	mov	r24, r24
+  34:	90 e0       	ldi	r25, 0x00	; 0
+  36:	8c 7f       	andi	r24, 0xFC	; 252
+   * 11/14: NASTY bug - we also need to check for no reset flags being
+   * set (ie, direct entry) and run bootloader in that case, otherwise
+   * bootloader won't run, among other things, after fresh bootloading!
+   */
+
+  if (ch && (ch & RSTCTRL_WDRF_bm ||
+  38:	89 2b       	or	r24, r25
+  3a:	69 f4       	brne	.+26     	; 0x56 <__SREG__+0x17>
+     * Dont bother trying to stuff it in r2, which requires heroic
+     * effort to fish out we'll put it in GPIOR0 where it won't get
+     * stomped on.
+     */
+    // __asm__ __volatile__ ("  mov r2, %0\n" :: "r" (ch));
+    RSTCTRL.RSTFR = ch; //clear the reset causes before jumping to app...
+  3c:	80 e4       	ldi	r24, 0x40	; 64
+  3e:	90 e0       	ldi	r25, 0x00	; 0
+  40:	29 81       	ldd	r18, Y+1	; 0x01
+  42:	fc 01       	movw	r30, r24
+  44:	20 83       	st	Z, r18
+    GPIOR0 = ch; // but, stash the reset cause in GPIOR0 for use by app...
+  46:	8c e1       	ldi	r24, 0x1C	; 28
+  48:	90 e0       	ldi	r25, 0x00	; 0
+  4a:	29 81       	ldd	r18, Y+1	; 0x01
+  4c:	fc 01       	movw	r30, r24
+  4e:	20 83       	st	Z, r18
+    watchdogConfig(WDT_PERIOD_OFF_gc);
+  50:	80 e0       	ldi	r24, 0x00	; 0
+  52:	33 d1       	rcall	.+614    	; 0x2ba <watchdogConfig>
+    __asm__ __volatile__(
+  54:	d5 c1       	rjmp	.+938    	; 0x400 <__FUSE_REGION_LENGTH__>
+  56:	a8 95       	wdr
+        );
+    }
+  }
+#endif // Fancy reset cause stuff
+
+    watchdogReset();
+  58:	84 e1       	ldi	r24, 0x14	; 20
+    //_PROTECTED_WRITE(CLKCTRL.MCLKCTRLB, CLKCTRL_PDIV_6X_gc);  // full speed clock
+
+    MYUART_TXPORT.DIR |= MYUART_TXPIN; // set TX pin to output
+  5a:	90 e0       	ldi	r25, 0x00	; 0
+  5c:	fc 01       	movw	r30, r24
+  5e:	20 81       	ld	r18, Z
+  60:	84 e1       	ldi	r24, 0x14	; 20
+  62:	90 e0       	ldi	r25, 0x00	; 0
+  64:	21 60       	ori	r18, 0x01	; 1
+  66:	fc 01       	movw	r30, r24
+  68:	20 83       	st	Z, r18
+  6a:	84 e1       	ldi	r24, 0x14	; 20
+    MYUART_TXPORT.OUT |= MYUART_TXPIN;  // and "1" as per datasheet
+  6c:	90 e0       	ldi	r25, 0x00	; 0
+  6e:	fc 01       	movw	r30, r24
+  70:	21 81       	ldd	r18, Z+1	; 0x01
+  72:	84 e1       	ldi	r24, 0x14	; 20
+  74:	90 e0       	ldi	r25, 0x00	; 0
+  76:	21 60       	ori	r18, 0x01	; 1
+  78:	fc 01       	movw	r30, r24
+  7a:	21 83       	std	Z+1, r18	; 0x01
+  7c:	80 ee       	ldi	r24, 0xE0	; 224
+#if defined (MYUART_PMUX_VAL)
+    MYPMUX_REG = MYUART_PMUX_VAL;  // alternate pinout to use
+  7e:	95 e0       	ldi	r25, 0x05	; 5
+  80:	fc 01       	movw	r30, r24
+  82:	12 82       	std	Z+2, r1	; 0x02
+  84:	82 e8       	ldi	r24, 0x82	; 130
+#endif
+    if ((FUSE_OSCCFG & FUSE_FREQSEL_gm) == FREQSEL_16MHZ_gc) {
+  86:	92 e1       	ldi	r25, 0x12	; 18
+  88:	fc 01       	movw	r30, r24
+  8a:	80 81       	ld	r24, Z
+  8c:	88 2f       	mov	r24, r24
+  8e:	90 e0       	ldi	r25, 0x00	; 0
+  90:	83 70       	andi	r24, 0x03	; 3
+  92:	99 27       	eor	r25, r25
+  94:	01 97       	sbiw	r24, 0x01	; 1
+  96:	41 f4       	brne	.+16     	; 0xa8 <__SREG__+0x69>
+  98:	80 e4       	ldi	r24, 0x40	; 64
+	    MYUART.BAUD = BAUD_SETTING_16;
+  9a:	98 e0       	ldi	r25, 0x08	; 8
+  9c:	2c e5       	ldi	r18, 0x5C	; 92
+  9e:	30 e0       	ldi	r19, 0x00	; 0
+  a0:	fc 01       	movw	r30, r24
+  a2:	20 87       	std	Z+8, r18	; 0x08
+  a4:	31 87       	std	Z+9, r19	; 0x09
+  a6:	07 c0       	rjmp	.+14     	; 0xb6 <__SREG__+0x77>
+  a8:	80 e4       	ldi	r24, 0x40	; 64
+    } else {
+	    MYUART.BAUD = BAUD_SETTING_20;//694;
+  aa:	98 e0       	ldi	r25, 0x08	; 8
+  ac:	23 e7       	ldi	r18, 0x73	; 115
+  ae:	30 e0       	ldi	r19, 0x00	; 0
+  b0:	fc 01       	movw	r30, r24
+  b2:	20 87       	std	Z+8, r18	; 0x08
+  b4:	31 87       	std	Z+9, r19	; 0x09
+  b6:	80 e4       	ldi	r24, 0x40	; 64
+    }
+    MYUART.DBGCTRL = 1;  // run during debug
+  b8:	98 e0       	ldi	r25, 0x08	; 8
+  ba:	21 e0       	ldi	r18, 0x01	; 1
+  bc:	fc 01       	movw	r30, r24
+  be:	23 87       	std	Z+11, r18	; 0x0b
+  c0:	80 e4       	ldi	r24, 0x40	; 64
+    MYUART.CTRLC = (USART_CHSIZE_gm & USART_CHSIZE_8BIT_gc);  // Async, Parity Disabled, 1 StopBit
+  c2:	98 e0       	ldi	r25, 0x08	; 8
+  c4:	23 e0       	ldi	r18, 0x03	; 3
+  c6:	fc 01       	movw	r30, r24
+  c8:	27 83       	std	Z+7, r18	; 0x07
+  ca:	80 e4       	ldi	r24, 0x40	; 64
+    MYUART.CTRLA = 0;  // Interrupts: all off
+  cc:	98 e0       	ldi	r25, 0x08	; 8
+  ce:	fc 01       	movw	r30, r24
+  d0:	15 82       	std	Z+5, r1	; 0x05
+  d2:	80 e4       	ldi	r24, 0x40	; 64
+    MYUART.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
+  d4:	98 e0       	ldi	r25, 0x08	; 8
+  d6:	20 ec       	ldi	r18, 0xC0	; 192
+  d8:	fc 01       	movw	r30, r24
+  da:	26 83       	std	Z+6, r18	; 0x06
+
+    // Set up watchdog to trigger after a bit
+    //  (nominally:, 1s for autoreset, longer for manual)
+    watchdogConfig(WDTPERIOD);
+  dc:	88 e0       	ldi	r24, 0x08	; 8
+  de:	ed d0       	rcall	.+474    	; 0x2ba <watchdogConfig>
+#endif
+
+    /* Forever loop: exits by causing WDT reset */
+    for (;;) {
+        /* get character from UART */
+        ch = getch();
+  e0:	a5 d0       	rcall	.+330    	; 0x22c <getch>
+  e2:	89 83       	std	Y+1, r24	; 0x01
+
+        if(ch == STK_GET_PARAMETER) {
+  e4:	89 81       	ldd	r24, Y+1	; 0x01
+  e6:	81 34       	cpi	r24, 0x41	; 65
+            which = getch();
+  e8:	b1 f4       	brne	.+44     	; 0x116 <__SREG__+0xd7>
+  ea:	a0 d0       	rcall	.+320    	; 0x22c <getch>
+  ec:	8b 83       	std	Y+3, r24	; 0x03
+            verifySpace();
+  ee:	d5 d0       	rcall	.+426    	; 0x29a <verifySpace>
+            /*
+            * Send optiboot version as "SW version"
+            * Note that the references to memory are optimized away.
+            */
+            if (which == STK_SW_MINOR) {
+  f0:	8b 81       	ldd	r24, Y+3	; 0x03
+  f2:	82 38       	cpi	r24, 0x82	; 130
+  f4:	21 f4       	brne	.+8      	; 0xfe <__SREG__+0xbf>
+                putch(optiboot_version & 0xFF);
+  f6:	80 e0       	ldi	r24, 0x00	; 0
+  f8:	99 e0       	ldi	r25, 0x09	; 9
+  fa:	7d d0       	rcall	.+250    	; 0x1f6 <putch>
+  fc:	79 c0       	rjmp	.+242    	; 0x1f0 <__SREG__+0x1b1>
+  fe:	8b 81       	ldd	r24, Y+3	; 0x03
+            } else if (which == STK_SW_MAJOR) {
+ 100:	81 38       	cpi	r24, 0x81	; 129
+ 102:	31 f4       	brne	.+12     	; 0x110 <__SREG__+0xd1>
+                putch(optiboot_version >> 8);
+ 104:	80 e0       	ldi	r24, 0x00	; 0
+ 106:	99 e0       	ldi	r25, 0x09	; 9
+ 108:	89 2f       	mov	r24, r25
+ 10a:	99 27       	eor	r25, r25
+ 10c:	74 d0       	rcall	.+232    	; 0x1f6 <putch>
+            } else {
+            /*
+            * GET PARAMETER returns a generic 0x03 reply for
+            * other parameters - enough to keep Avrdude happy
+            */
+                putch(0x03);
+ 10e:	70 c0       	rjmp	.+224    	; 0x1f0 <__SREG__+0x1b1>
+ 110:	83 e0       	ldi	r24, 0x03	; 3
+        }
+        else if(ch == STK_SET_DEVICE_EXT) {
+            // SET DEVICE EXT is ignored
+            getNch(5);
+        }*/ 
+        else if(ch == STK_LOAD_ADDRESS) {
+ 112:	71 d0       	rcall	.+226    	; 0x1f6 <putch>
+ 114:	6d c0       	rjmp	.+218    	; 0x1f0 <__SREG__+0x1b1>
+ 116:	89 81       	ldd	r24, Y+1	; 0x01
+            // LOAD ADDRESS
+            address.bytes[0] = getch();
+ 118:	85 35       	cpi	r24, 0x55	; 85
+ 11a:	31 f4       	brne	.+12     	; 0x128 <__SREG__+0xe9>
+            address.bytes[1] = getch();
+ 11c:	87 d0       	rcall	.+270    	; 0x22c <getch>
+ 11e:	08 2f       	mov	r16, r24
+            // ToDo: will there be mega-0 chips with >128k of RAM?
+    /*          UPDI chips apparently have byte-addressable FLASH ?
+            address.word *= 2; // Convert from word address to byte address
+    */
+            verifySpace();
+ 120:	85 d0       	rcall	.+266    	; 0x22c <getch>
+ 122:	18 2f       	mov	r17, r24
+ 124:	ba d0       	rcall	.+372    	; 0x29a <verifySpace>
+            getNch(4);
+            putch(0x00);
+#endif
+        }
+        /* Write memory, length is big endian and is in bytes */
+        else if(ch == STK_PROG_PAGE) {
+ 126:	64 c0       	rjmp	.+200    	; 0x1f0 <__SREG__+0x1b1>
+ 128:	89 81       	ldd	r24, Y+1	; 0x01
+ 12a:	84 36       	cpi	r24, 0x64	; 100
+ 12c:	09 f0       	breq	.+2      	; 0x130 <__SREG__+0xf1>
+            // PROGRAM PAGE - any kind of page!
+
+            GETLENGTH(length);
+ 12e:	42 c0       	rjmp	.+132    	; 0x1b4 <__SREG__+0x175>
+ 130:	7d d0       	rcall	.+250    	; 0x22c <getch>
+ 132:	7c d0       	rcall	.+248    	; 0x22c <getch>
+ 134:	f8 2e       	mov	r15, r24
+ 136:	7a d0       	rcall	.+244    	; 0x22c <getch>
+            desttype = getch();
+ 138:	8a 83       	std	Y+2, r24	; 0x02
+ 13a:	8a 81       	ldd	r24, Y+2	; 0x02
+
+            if (desttype == 'F') {
+ 13c:	86 34       	cpi	r24, 0x46	; 70
+ 13e:	21 f4       	brne	.+8      	; 0x148 <__SREG__+0x109>
+ 140:	c8 01       	movw	r24, r16
+                address.word += MAPPED_PROGMEM_START;
+ 142:	90 5c       	subi	r25, 0xC0	; 192
+ 144:	8c 01       	movw	r16, r24
+ 146:	03 c0       	rjmp	.+6      	; 0x14e <__SREG__+0x10f>
+            } else {
+                address.word += MAPPED_EEPROM_START;
+ 148:	c8 01       	movw	r24, r16
+ 14a:	9c 5e       	subi	r25, 0xEC	; 236
+ 14c:	8c 01       	movw	r16, r24
+            }
+            // TODO: user row?
+
+            do {
+                *(address.bptr++) = getch();
+ 14e:	68 01       	movw	r12, r16
+ 150:	c6 01       	movw	r24, r12
+ 152:	01 96       	adiw	r24, 0x01	; 1
+ 154:	8c 01       	movw	r16, r24
+ 156:	6a d0       	rcall	.+212    	; 0x22c <getch>
+ 158:	f6 01       	movw	r30, r12
+ 15a:	80 83       	st	Z, r24
+ 15c:	fa 94       	dec	r15
+            } while (--length);
+ 15e:	ff 20       	and	r15, r15
+ 160:	b1 f7       	brne	.-20     	; 0x14e <__SREG__+0x10f>
+ 162:	9b d0       	rcall	.+310    	; 0x29a <verifySpace>
+
+            // Read command terminator, start reply
+            verifySpace();
+ 164:	00 00       	nop
+ 166:	80 e0       	ldi	r24, 0x00	; 0
+
+            while (NVMCTRL.STATUS & (NVMCTRL_FBUSY_bm|NVMCTRL_EEBUSY_bm))
+ 168:	90 e1       	ldi	r25, 0x10	; 16
+ 16a:	fc 01       	movw	r30, r24
+ 16c:	82 81       	ldd	r24, Z+2	; 0x02
+ 16e:	88 2f       	mov	r24, r24
+ 170:	90 e0       	ldi	r25, 0x00	; 0
+ 172:	83 70       	andi	r24, 0x03	; 3
+ 174:	99 27       	eor	r25, r25
+ 176:	89 2b       	or	r24, r25
+ 178:	b1 f7       	brne	.-20     	; 0x166 <__SREG__+0x127>
+ 17a:	8d e9       	ldi	r24, 0x9D	; 157
+ 17c:	93 e0       	ldi	r25, 0x03	; 3
+            ; // wait for flash and EEPROM not busy, just in case.
+
+            /*
+            * Actually Write the buffer to flash (and wait for it to finish.) */
+            
+            _PROTECTED_WRITE_SPM(NVMCTRL.CTRLA, NVMCTRL_CMD_PAGEERASEWRITE_gc);
+ 17e:	84 bf       	out	0x34, r24	; 52
+ 180:	90 93 00 10 	sts	0x1000, r25	; 0x801000 <__TEXT_REGION_LENGTH__+0x701000>
+ 184:	00 00       	nop
+ 186:	80 e0       	ldi	r24, 0x00	; 0
+            while (NVMCTRL.STATUS & (NVMCTRL_FBUSY_bm|NVMCTRL_EEBUSY_bm))
+ 188:	90 e1       	ldi	r25, 0x10	; 16
+ 18a:	fc 01       	movw	r30, r24
+ 18c:	82 81       	ldd	r24, Z+2	; 0x02
+ 18e:	88 2f       	mov	r24, r24
+ 190:	90 e0       	ldi	r25, 0x00	; 0
+ 192:	83 70       	andi	r24, 0x03	; 3
+ 194:	99 27       	eor	r25, r25
+ 196:	89 2b       	or	r24, r25
+ 198:	b1 f7       	brne	.-20     	; 0x186 <__SREG__+0x147>
+ 19a:	80 e0       	ldi	r24, 0x00	; 0
+            ; // wait for flash and EEPROM not busy, just in case.
+            if (NVMCTRL.STATUS & NVMCTRL_WRERROR_bm)
+ 19c:	90 e1       	ldi	r25, 0x10	; 16
+ 19e:	fc 01       	movw	r30, r24
+ 1a0:	82 81       	ldd	r24, Z+2	; 0x02
+ 1a2:	88 2f       	mov	r24, r24
+ 1a4:	90 e0       	ldi	r25, 0x00	; 0
+ 1a6:	84 70       	andi	r24, 0x04	; 4
+ 1a8:	99 27       	eor	r25, r25
+            {
+                putch(STK_FAILED);
+ 1aa:	89 2b       	or	r24, r25
+ 1ac:	09 f1       	breq	.+66     	; 0x1f0 <__SREG__+0x1b1>
+ 1ae:	81 e1       	ldi	r24, 0x11	; 17
+ 1b0:	22 d0       	rcall	.+68     	; 0x1f6 <putch>
+            }
+            
+        }
+        /* Read memory block mode, length is big endian. */ 
+        else if(ch == STK_READ_PAGE) {
+ 1b2:	1e c0       	rjmp	.+60     	; 0x1f0 <__SREG__+0x1b1>
+ 1b4:	89 81       	ldd	r24, Y+1	; 0x01
+ 1b6:	84 37       	cpi	r24, 0x74	; 116
+            GETLENGTH(length);
+ 1b8:	d9 f4       	brne	.+54     	; 0x1f0 <__SREG__+0x1b1>
+ 1ba:	38 d0       	rcall	.+112    	; 0x22c <getch>
+ 1bc:	37 d0       	rcall	.+110    	; 0x22c <getch>
+ 1be:	f8 2e       	mov	r15, r24
+ 1c0:	35 d0       	rcall	.+106    	; 0x22c <getch>
+
+            desttype = getch();
+ 1c2:	8a 83       	std	Y+2, r24	; 0x02
+ 1c4:	6a d0       	rcall	.+212    	; 0x29a <verifySpace>
+
+            verifySpace();
+ 1c6:	8a 81       	ldd	r24, Y+2	; 0x02
+ 1c8:	86 34       	cpi	r24, 0x46	; 70
+            if (desttype == 'F') {
+ 1ca:	21 f4       	brne	.+8      	; 0x1d4 <__SREG__+0x195>
+ 1cc:	c8 01       	movw	r24, r16
+                address.word += MAPPED_PROGMEM_START;
+ 1ce:	90 5c       	subi	r25, 0xC0	; 192
+ 1d0:	8c 01       	movw	r16, r24
+ 1d2:	03 c0       	rjmp	.+6      	; 0x1da <__SREG__+0x19b>
+ 1d4:	c8 01       	movw	r24, r16
+            } else {
+                address.word += MAPPED_EEPROM_START;
+ 1d6:	9c 5e       	subi	r25, 0xEC	; 236
+ 1d8:	8c 01       	movw	r16, r24
+ 1da:	c8 01       	movw	r24, r16
+            }
+            // TODO: user row?
+
+            do {
+                putch(*(address.bptr++));
+ 1dc:	9c 01       	movw	r18, r24
+ 1de:	2f 5f       	subi	r18, 0xFF	; 255
+ 1e0:	3f 4f       	sbci	r19, 0xFF	; 255
+ 1e2:	89 01       	movw	r16, r18
+ 1e4:	fc 01       	movw	r30, r24
+ 1e6:	80 81       	ld	r24, Z
+ 1e8:	06 d0       	rcall	.+12     	; 0x1f6 <putch>
+ 1ea:	fa 94       	dec	r15
+ 1ec:	ff 20       	and	r15, r15
+            } while (--length);
+ 1ee:	a9 f7       	brne	.-22     	; 0x1da <__SREG__+0x19b>
+ 1f0:	80 e1       	ldi	r24, 0x10	; 16
+ 1f2:	01 d0       	rcall	.+2      	; 0x1f6 <putch>
+        }
+        else {
+            // This covers the response to commands like STK_ENTER_PROGMODE
+            verifySpace();
+        }*/
+        putch(STK_OK);
+ 1f4:	75 cf       	rjmp	.-278    	; 0xe0 <__SREG__+0xa1>
+
+000001f6 <putch>:
+ 1f6:	cf 93       	push	r28
+ 1f8:	df 93       	push	r29
+#endif
+
+    /* Forever loop: exits by causing WDT reset */
+    for (;;) {
+        /* get character from UART */
+        ch = getch();
+ 1fa:	1f 92       	push	r1
+        }*/
+        putch(STK_OK);
+    }
+}
+
+void putch (char ch) {
+ 1fc:	cd b7       	in	r28, 0x3d	; 61
+ 1fe:	de b7       	in	r29, 0x3e	; 62
+ 200:	89 83       	std	Y+1, r24	; 0x01
+    while (0 == (MYUART.STATUS & USART_DREIF_bm))
+ 202:	00 00       	nop
+ 204:	80 e4       	ldi	r24, 0x40	; 64
+ 206:	98 e0       	ldi	r25, 0x08	; 8
+ 208:	fc 01       	movw	r30, r24
+ 20a:	84 81       	ldd	r24, Z+4	; 0x04
+ 20c:	88 2f       	mov	r24, r24
+ 20e:	90 e0       	ldi	r25, 0x00	; 0
+ 210:	80 72       	andi	r24, 0x20	; 32
+ 212:	99 27       	eor	r25, r25
+ 214:	89 2b       	or	r24, r25
+ 216:	b1 f3       	breq	.-20     	; 0x204 <putch+0xe>
+	;
+    MYUART.TXDATAL = ch;
+ 218:	80 e4       	ldi	r24, 0x40	; 64
+ 21a:	98 e0       	ldi	r25, 0x08	; 8
+ 21c:	29 81       	ldd	r18, Y+1	; 0x01
+ 21e:	fc 01       	movw	r30, r24
+ 220:	22 83       	std	Z+2, r18	; 0x02
+}
+ 222:	00 00       	nop
+ 224:	0f 90       	pop	r0
+ 226:	df 91       	pop	r29
+ 228:	cf 91       	pop	r28
+ 22a:	08 95       	ret
+
+0000022c <getch>:
+
+//#define ECHO
+
+uint8_t getch (void) {
+ 22c:	cf 93       	push	r28
+ 22e:	df 93       	push	r29
+ 230:	00 d0       	rcall	.+0      	; 0x232 <getch+0x6>
+ 232:	cd b7       	in	r28, 0x3d	; 61
+ 234:	de b7       	in	r29, 0x3e	; 62
+    uint8_t ch, flags;
+    while (!(MYUART.STATUS & USART_RXCIF_bm))
+ 236:	00 00       	nop
+ 238:	80 e4       	ldi	r24, 0x40	; 64
+ 23a:	98 e0       	ldi	r25, 0x08	; 8
+ 23c:	fc 01       	movw	r30, r24
+ 23e:	84 81       	ldd	r24, Z+4	; 0x04
+ 240:	88 23       	and	r24, r24
+ 242:	d4 f7       	brge	.-12     	; 0x238 <getch+0xc>
+	;
+    flags = MYUART.RXDATAH;
+ 244:	80 e4       	ldi	r24, 0x40	; 64
+ 246:	98 e0       	ldi	r25, 0x08	; 8
+ 248:	fc 01       	movw	r30, r24
+ 24a:	81 81       	ldd	r24, Z+1	; 0x01
+ 24c:	89 83       	std	Y+1, r24	; 0x01
+    ch = MYUART.RXDATAL;
+ 24e:	80 e4       	ldi	r24, 0x40	; 64
+ 250:	98 e0       	ldi	r25, 0x08	; 8
+ 252:	fc 01       	movw	r30, r24
+ 254:	80 81       	ld	r24, Z
+ 256:	8a 83       	std	Y+2, r24	; 0x02
+#ifdef ECHO
+    putch(ch);
+#endif
+    if ((flags & USART_FERR_bm) == 0)
+ 258:	89 81       	ldd	r24, Y+1	; 0x01
+ 25a:	88 2f       	mov	r24, r24
+ 25c:	90 e0       	ldi	r25, 0x00	; 0
+ 25e:	84 70       	andi	r24, 0x04	; 4
+ 260:	99 27       	eor	r25, r25
+ 262:	89 2b       	or	r24, r25
+ 264:	09 f4       	brne	.+2      	; 0x268 <getch+0x3c>
+	    watchdogReset();
+ 266:	a8 95       	wdr
+#ifdef LED_DATA_FLASH
+    LED_PORT.IN |= LED;
+#endif
+
+    return ch;
+ 268:	8a 81       	ldd	r24, Y+2	; 0x02
+}
+ 26a:	0f 90       	pop	r0
+ 26c:	0f 90       	pop	r0
+ 26e:	df 91       	pop	r29
+ 270:	cf 91       	pop	r28
+ 272:	08 95       	ret
+
+00000274 <getNch>:
+
+void getNch (uint8_t count) {
+ 274:	cf 93       	push	r28
+ 276:	df 93       	push	r29
+ 278:	1f 92       	push	r1
+ 27a:	cd b7       	in	r28, 0x3d	; 61
+ 27c:	de b7       	in	r29, 0x3e	; 62
+ 27e:	89 83       	std	Y+1, r24	; 0x01
+    do getch(); while (--count);
+ 280:	d5 df       	rcall	.-86     	; 0x22c <getch>
+ 282:	89 81       	ldd	r24, Y+1	; 0x01
+ 284:	81 50       	subi	r24, 0x01	; 1
+ 286:	89 83       	std	Y+1, r24	; 0x01
+ 288:	89 81       	ldd	r24, Y+1	; 0x01
+ 28a:	88 23       	and	r24, r24
+ 28c:	c9 f7       	brne	.-14     	; 0x280 <getNch+0xc>
+    verifySpace();
+ 28e:	05 d0       	rcall	.+10     	; 0x29a <verifySpace>
+ 290:	00 00       	nop
+}
+ 292:	0f 90       	pop	r0
+ 294:	df 91       	pop	r29
+ 296:	cf 91       	pop	r28
+ 298:	08 95       	ret
+
+0000029a <verifySpace>:
+ 29a:	cf 93       	push	r28
+
+void verifySpace () {
+ 29c:	df 93       	push	r29
+ 29e:	cd b7       	in	r28, 0x3d	; 61
+ 2a0:	de b7       	in	r29, 0x3e	; 62
+    if (getch() != CRC_EOP) {
+ 2a2:	c4 df       	rcall	.-120    	; 0x22c <getch>
+ 2a4:	80 32       	cpi	r24, 0x20	; 32
+ 2a6:	19 f0       	breq	.+6      	; 0x2ae <verifySpace+0x14>
+        watchdogConfig(WDT_PERIOD_8CLK_gc);    // shorten WD timeout
+ 2a8:	81 e0       	ldi	r24, 0x01	; 1
+ 2aa:	07 d0       	rcall	.+14     	; 0x2ba <watchdogConfig>
+        while (1)			      // and busy-loop so that WD causes
+ 2ac:	ff cf       	rjmp	.-2      	; 0x2ac <verifySpace+0x12>
+            ;				      //  a reset and app start.
+    }
+    putch(STK_INSYNC);
+ 2ae:	84 e1       	ldi	r24, 0x14	; 20
+ 2b0:	a2 df       	rcall	.-188    	; 0x1f6 <putch>
+ 2b2:	00 00       	nop
+}
+ 2b4:	df 91       	pop	r29
+ 2b6:	cf 91       	pop	r28
+ 2b8:	08 95       	ret
+
+000002ba <watchdogConfig>:
+ 2ba:	cf 93       	push	r28
+
+/*
+ * Change the watchdog configuration.
+ *  Could be a new timeout, could be off...
+ */
+void watchdogConfig (uint8_t x) {
+ 2bc:	df 93       	push	r29
+ 2be:	1f 92       	push	r1
+ 2c0:	cd b7       	in	r28, 0x3d	; 61
+ 2c2:	de b7       	in	r29, 0x3e	; 62
+ 2c4:	89 83       	std	Y+1, r24	; 0x01
+ 2c6:	00 00       	nop
+    while(WDT.STATUS & WDT_SYNCBUSY_bm)
+ 2c8:	80 e0       	ldi	r24, 0x00	; 0
+ 2ca:	91 e0       	ldi	r25, 0x01	; 1
+ 2cc:	fc 01       	movw	r30, r24
+ 2ce:	81 81       	ldd	r24, Z+1	; 0x01
+ 2d0:	88 2f       	mov	r24, r24
+ 2d2:	90 e0       	ldi	r25, 0x00	; 0
+ 2d4:	81 70       	andi	r24, 0x01	; 1
+ 2d6:	99 27       	eor	r25, r25
+ 2d8:	89 2b       	or	r24, r25
+ 2da:	b1 f7       	brne	.-20     	; 0x2c8 <watchdogConfig+0xe>
+ 2dc:	88 ed       	ldi	r24, 0xD8	; 216
+	;  // Busy wait for sycnhronization is required!
+    _PROTECTED_WRITE(WDT.CTRLA, x);
+ 2de:	99 81       	ldd	r25, Y+1	; 0x01
+ 2e0:	84 bf       	out	0x34, r24	; 52
+ 2e2:	90 93 00 01 	sts	0x0100, r25	; 0x800100 <__TEXT_REGION_LENGTH__+0x700100>
+ 2e6:	00 00       	nop
+}
+ 2e8:	0f 90       	pop	r0
+ 2ea:	df 91       	pop	r29
+ 2ec:	cf 91       	pop	r28
+ 2ee:	08 95       	ret
+
+000002f0 <do_nvmctrl>:
+ 2f0:	cf 93       	push	r28
+ *
+ * For example, to write a flash page:
+ *
+ */
+static void do_nvmctrl(uint16_t address, uint8_t command, uint8_t data)  __attribute__ ((used));
+static void do_nvmctrl (uint16_t address, uint8_t command, uint8_t data) {
+ 2f2:	df 93       	push	r29
+ 2f4:	00 d0       	rcall	.+0      	; 0x2f6 <do_nvmctrl+0x6>
+ 2f6:	00 d0       	rcall	.+0      	; 0x2f8 <do_nvmctrl+0x8>
+ 2f8:	cd b7       	in	r28, 0x3d	; 61
+ 2fa:	de b7       	in	r29, 0x3e	; 62
+ 2fc:	89 83       	std	Y+1, r24	; 0x01
+ 2fe:	9a 83       	std	Y+2, r25	; 0x02
+ 300:	6b 83       	std	Y+3, r22	; 0x03
+ 302:	4c 83       	std	Y+4, r20	; 0x04
+ 304:	8b 81       	ldd	r24, Y+3	; 0x03
+     if (command <= NVMCTRL_CMD_gm) {
+ 306:	88 30       	cpi	r24, 0x08	; 8
+ 308:	88 f4       	brcc	.+34     	; 0x32c <do_nvmctrl+0x3c>
+ 30a:	8d e9       	ldi	r24, 0x9D	; 157
+        _PROTECTED_WRITE_SPM(NVMCTRL.CTRLA, command);
+ 30c:	9b 81       	ldd	r25, Y+3	; 0x03
+ 30e:	84 bf       	out	0x34, r24	; 52
+ 310:	90 93 00 10 	sts	0x1000, r25	; 0x801000 <__TEXT_REGION_LENGTH__+0x701000>
+ 314:	00 00       	nop
+        while (NVMCTRL.STATUS & (NVMCTRL_FBUSY_bm|NVMCTRL_EEBUSY_bm))
+ 316:	80 e0       	ldi	r24, 0x00	; 0
+ 318:	90 e1       	ldi	r25, 0x10	; 16
+ 31a:	fc 01       	movw	r30, r24
+ 31c:	82 81       	ldd	r24, Z+2	; 0x02
+ 31e:	88 2f       	mov	r24, r24
+ 320:	90 e0       	ldi	r25, 0x00	; 0
+ 322:	83 70       	andi	r24, 0x03	; 3
+ 324:	99 27       	eor	r25, r25
+ 326:	89 2b       	or	r24, r25
+ 328:	b1 f7       	brne	.-20     	; 0x316 <do_nvmctrl+0x26>
+ 32a:	05 c0       	rjmp	.+10     	; 0x336 <do_nvmctrl+0x46>
+            ; // wait for flash and EEPROM not busy, just in case.
+    } else {
+        *(uint8_t *)address = data;
+    }
+}
+ 32c:	89 81       	ldd	r24, Y+1	; 0x01
+     if (command <= NVMCTRL_CMD_gm) {
+        _PROTECTED_WRITE_SPM(NVMCTRL.CTRLA, command);
+        while (NVMCTRL.STATUS & (NVMCTRL_FBUSY_bm|NVMCTRL_EEBUSY_bm))
+            ; // wait for flash and EEPROM not busy, just in case.
+    } else {
+        *(uint8_t *)address = data;
+ 32e:	9a 81       	ldd	r25, Y+2	; 0x02
+ 330:	2c 81       	ldd	r18, Y+4	; 0x04
+ 332:	fc 01       	movw	r30, r24
+ 334:	20 83       	st	Z, r18
+ 336:	00 00       	nop
+    }
+}
+ 338:	24 96       	adiw	r28, 0x04	; 4
+ 33a:	cd bf       	out	0x3d, r28	; 61
+ 33c:	de bf       	out	0x3e, r29	; 62
+ 33e:	df 91       	pop	r29
+ 340:	cf 91       	pop	r28
+ 342:	08 95       	ret
+
+Disassembly of section .application:
+
+00000400 <app>:
+      __attribute__((naked)) app();
+void app() 
+{
+    uint8_t ch;
+    
+    ch = RSTCTRL.RSTFR;
+ 400:	80 e4       	ldi	r24, 0x40	; 64
+ 402:	90 e0       	ldi	r25, 0x00	; 0
+ 404:	fc 01       	movw	r30, r24
+ 406:	10 81       	ld	r17, Z
+    RSTCTRL.RSTFR = ch; // reset causes
+ 408:	80 e4       	ldi	r24, 0x40	; 64
+ 40a:	90 e0       	ldi	r25, 0x00	; 0
+ 40c:	fc 01       	movw	r30, r24
+ 40e:	10 83       	st	Z, r17
+    *(volatile uint16_t *)(&optiboot_version);   // reference the version
+ 410:	8e ef       	ldi	r24, 0xFE	; 254
+ 412:	93 e0       	ldi	r25, 0x03	; 3
+ 414:	fc 01       	movw	r30, r24
+ 416:	80 81       	ld	r24, Z
+ 418:	91 81       	ldd	r25, Z+1	; 0x01
+    do_nvmctrl(0, NVMCTRL_CMD_PAGEBUFCLR_gc, 0); // reference this function!    
+ 41a:	40 e0       	ldi	r20, 0x00	; 0
+ 41c:	64 e0       	ldi	r22, 0x04	; 4
+ 41e:	80 e0       	ldi	r24, 0x00	; 0
+ 420:	90 e0       	ldi	r25, 0x00	; 0
+ 422:	66 df       	rcall	.-308    	; 0x2f0 <do_nvmctrl>
+    //watchdogConfig(WDT_PERIOD_8CLK_gc);    // shorten WD timeout
+    //while (1)			      // and busy-loop so that WD causes
+    //    ;				      //  a reset and app start.
+    __asm__ __volatile__ ("jmp 0");    // similar to running off end of memory
+ 424:	0c 94 00 00 	jmp	0	; 0x0 <__tmp_reg__>
+	...

@@ -162,7 +162,7 @@ optiboot_%.hex: optiboot_%.elf
 %_fuses.hex: %.elf
 	$(OBJCOPY) -j --section=.fuse -O ihex $< $@
 
-%.elf:	optiboot_x_mod.c FORCE
+%.elf:	optiboot_x.c FORCE
 	@echo "Compile elf"
 	$(CC) $(CFLAGS) $(CPU_OPTIONS) $(LED_OPTIONS) $(UART_OPTIONS) $(COMMON_OPTIONS) $(POR) $(BOOTFLAGS) $(LDFLAGS) $(PACK_OPT) -Wl,-Map="optiboot_x.map" -mmcu=$(MCU) -o $@ $<
 

@@ -79,7 +79,7 @@ AVRDUDE_CONF = "/home/kjb/Public Workspace/MegaCoreX/megaavr/avrdude.conf"
 
 #AVRDUDE_NO_VERIFY = -V
 
-AVRDUDE_FLAGS = -C $(AVRDUDE_CONF) -p $(AVRDUDE_MCU) -P $(AVRDUDE_PORT) -b $(AVRDUDE_BAUD) $(AVRDUDE_NO_VERIFY)
+AVRDUDE_FLAGS = -p $(AVRDUDE_MCU) -c $(AVRDUDE_PROGRAMMER)
 
 include parse_options.mk
 
@@ -153,14 +153,14 @@ endif
 
 
 optiboot_%.hex: optiboot_%.elf
-	$(OBJCOPY) -j .text -j .data -j .version --set-section-flags .version=alloc,load -O ihex $< $@
+	$(OBJCOPY) -j .text -j .data -j .version -j .application --set-section-flags .version=alloc,load -O ihex $< $@
 
 %.hex: %.elf
-	$(OBJCOPY) -j .text -j .data -j .version --set-section-flags .version=alloc,load -O ihex $< $@	
+	$(OBJCOPY) -j .text -j .data -j .version -j .application --set-section-flags .version=alloc,load -O ihex $< $@	
 	$(SIZE) $@
 
 %_fuses.hex: %.elf
-	$(OBJCOPY) -j --section=.fuse -O ihex $< $@
+	$(OBJCOPY) -j .fuses --set-section-flags .fuses=alloc,load -O ihex $< $@
 
 %.elf:	optiboot_x.c FORCE
 	@echo "Compile elf"
@@ -170,7 +170,8 @@ flash: %.hex
 	$(AVRDUDE) $(AVRDUDE_FLAGS) -U flash:w:$<.hex:i
 	
 writebootend: 
-	$(AVRDUDE) $(AVRDUDE_FLAGS) -U fuses:w:$(BOOTEND_FUSE):m
+	$(AVRDUDE) $(AVRDUDE_FLAGS) -U bootend:w:$(BOOTEND_FUSE):m -U wdtcfg:w:0x00:m -U osccfg:w:0x72:m -U syscfg0:w:0xfe:m
+
 
 
 #---------------------------------------------------------------------------
@@ -182,7 +183,7 @@ writebootend:
 #  appropriate specific options
 #---------------------------------------------------------------------------
 
-.PHONY: mega0 install
+.PHONY: mega0 install writebootend fresh_install
 
 mega0: MCU=atmega4809
 mega0: bootloaders/mega0/$(BAUD_RATE)/Optiboot_mega0_UART$(UART)_$(UARTMUX)_$(BAUD_RATE)_$(LED).hex 
@@ -192,6 +193,8 @@ mega0: bootloaders/mega0/$(BAUD_RATE)/Optiboot_mega0_UART$(UART)_$(UARTMUX)_$(BA
 
 install: mega0
 	avrdude -p m3208 -c atmelice_updi -U flash:w:bootloaders/mega0/$(BAUD_RATE)/Optiboot_mega0_UART$(UART)_$(UARTMUX)_$(BAUD_RATE)_$(LED).hex:i
+
+fresh_install: writebootend install
 
 
 #---------------------------------------------------------------------------

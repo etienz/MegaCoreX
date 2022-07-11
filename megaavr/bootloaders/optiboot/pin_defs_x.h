@@ -673,6 +673,9 @@
     defined(__AVR_ATmega3209__) || defined(__AVR_ATmega3208__) || \
     defined(__AVR_ATmega1609__) || defined(__AVR_ATmega1608__) || \
     defined(__AVR_ATmega809__) || defined(__AVR_ATmega808__)
+    
+#define HARD_PORT           PORTA
+#define HARD_RECOVERY_KEY   (uint8_t)0x00//((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3))
 #define MYPMUX_REG PORTMUX.USARTROUTEA
 # if (UARTTX == A0)
 #  define UART_NAME "A0"
